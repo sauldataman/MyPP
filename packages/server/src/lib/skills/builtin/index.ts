@@ -7,16 +7,26 @@
 import { webSkills } from "./web.js";
 import { dataSkills } from "./data.js";
 import { databaseSkills } from "./database.js";
+import { xTwitterSkills } from "./x-twitter.js";
+import { filesystemSkills } from "./filesystem.js";
 import { skillRegistry } from "../registry.js";
 
 // All built-in skills
-export const builtinSkills = [...webSkills, ...dataSkills, ...databaseSkills];
+export const builtinSkills = [
+  ...webSkills,
+  ...dataSkills,
+  ...databaseSkills,
+  ...xTwitterSkills,
+  ...filesystemSkills,
+];
 
 // Skill categories for easy access
 export const skillCategories = {
   web: webSkills,
   data: dataSkills,
   database: databaseSkills,
+  xTwitter: xTwitterSkills,
+  filesystem: filesystemSkills,
 };
 
 // Register all built-in skills
@@ -30,3 +40,5 @@ export function registerBuiltinSkills(): void {
 export * from "./web.js";
 export * from "./data.js";
 export * from "./database.js";
+export * from "./x-twitter.js";
+export * from "./filesystem.js";
