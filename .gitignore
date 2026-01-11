@@ -1,0 +1,34 @@
+# Runtime data
+briefs/
+logs/
+handoffs/
+artifacts/
+
+# Domain runtime data
+domains/*/data/
+domains/*/traces/
+domains/*/state.json
+domains/*/config.json
+domains/*/queue.json
+domains/*/inbox/
+domains/*/outbox/
+domains/*/suggestions/
+domains/*/briefs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
