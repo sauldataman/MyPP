@@ -4,193 +4,189 @@ Implementation of [Molly Cantillon's Personal Panopticon](https://docs.google.co
 
 > "A panopticon still, but the tower belongs to you."
 
-## Core Philosophy
-
-States built legibility infrastructure to govern. Corporations built it to sell. Neither gave you the keys to the tower. This project reverses that asymmetry.
-
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        ORCHESTRATOR                              │
-│   - Runs agents in parallel (8 instances)                        │
-│   - Manages scheduling (cron-like)                               │
-│   - Aggregates daily briefs                                      │
-│   - Sends notifications                                          │
-│   - caffeinate -i (keeps system awake)                          │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          │                   │                   │
-          ▼                   ▼                   ▼
-    ┌──────────┐        ┌──────────┐        ┌──────────┐
-    │CONSUMPTION│───────▶│ CONTENT  │        │ FINANCES │
-    │  Agent   │handoff │  Agent   │        │  Agent   │
-    │          │        │          │        │          │
-    │ YouTube  │        │ Queue    │        │ Portfolio│
-    │ Bilibili │        │ Priority │        │ Congress │
-    │ Douban   │        │ Outlines │        │ Polymarket│
-    │ RSS      │        │ Drafts   │        │ Sentiment│
-    └──────────┘        └──────────┘        └──────────┘
-          │                   │                   │
-          └───────────────────┼───────────────────┘
-                              │
-                              ▼
-                    ┌──────────────────┐
-                    │  HANDOFF QUEUE   │
-                    │ (Filesystem-based)│
-                    │                  │
-                    │ pending/         │
-                    │   {domain}/      │
-                    │     *.json       │
-                    └──────────────────┘
-                              │
-                              ▼
-                    ┌──────────────────┐
-                    │   DAILY BRIEF    │
-                    │   ~/briefs/      │
-                    │   YYYY-MM-DD.md  │
-                    └──────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              DEPLOYMENT                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────┐        ┌─────────────┐        ┌─────────────┐         │
+│  │   VERCEL    │        │   RAILWAY   │        │    LOCAL    │         │
+│  │  (Frontend) │◀──────▶│  (Backend)  │        │    (Dev)    │         │
+│  │             │        │             │        │             │         │
+│  │  Next.js    │        │  Node.js    │        │  Docker     │         │
+│  │  Dashboard  │        │  Express    │        │  Compose    │         │
+│  └─────────────┘        └──────┬──────┘        └──────┬──────┘         │
+│                                │                      │                 │
+│                                ▼                      ▼                 │
+│                       ┌────────────────────────────────────┐           │
+│                       │           ASYNC JOBS               │           │
+│                       │  ┌─────────┐    ┌─────────┐       │           │
+│                       │  │ BullMQ  │    │  Cron   │       │           │
+│                       │  │ (Redis) │    │Scheduler│       │           │
+│                       │  └─────────┘    └─────────┘       │           │
+│                       └────────────────────────────────────┘           │
+│                                │                                        │
+│                                ▼                                        │
+│                       ┌────────────────────────────────────┐           │
+│                       │           LLM ROUTER               │           │
+│                       │  ┌───────┬───────┬───────┬──────┐ │           │
+│                       │  │Gemini │ Grok  │Claude │Ollama│ │           │
+│                       │  └───────┴───────┴───────┴──────┘ │           │
+│                       └────────────────────────────────────┘           │
+│                                │                                        │
+│                                ▼                                        │
+│                       ┌────────────────────────────────────┐           │
+│                       │          PostgreSQL                │           │
+│                       │     (unified local + prod)         │           │
+│                       └────────────────────────────────────┘           │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Key Concepts
+## Tech Stack
 
-### 1. Domain Isolation
-Each agent operates independently with its own:
-- State (`state.json`)
-- Configuration (`config.json`)
-- Data storage (`data/`)
-- Thought traces (`traces/`)
-
-### 2. Explicit Handoffs
-Agents communicate **only** through handoffs:
-```python
-self.send_handoff(
-    to_domain='content',
-    handoff_type='potential_material',
-    payload={'title': '...', 'relevance_score': 0.87}
-)
-```
-
-### 3. Thought Traces
-All decisions are logged for recursive self-improvement:
-```python
-self.log_trace("Evaluating material: XYZ", 'evaluation')
-```
-
-### 4. Daily Briefs
-Every morning, a unified brief aggregates insights from all agents.
+| Layer | Technology |
+|-------|------------|
+| Frontend | Next.js 14 + Tailwind CSS |
+| Backend | Node.js + Express + TypeScript |
+| Database | PostgreSQL (Prisma ORM) |
+| Job Queue | BullMQ + Redis |
+| Scheduler | node-cron |
+| LLM | Gemini, Grok, Claude, Ollama |
 
 ## Quick Start
 
+### 1. Install dependencies
+
 ```bash
-# Run all agents
-python run.py
-
-# Run specific agent
-python run.py -d content
-
-# Check system status
-python run.py --status
-
-# Run as daemon with scheduling
-python run.py --daemon
+pnpm install
 ```
 
-## Directory Structure
+### 2. Start local services (PostgreSQL + Redis)
+
+```bash
+docker-compose up -d
+```
+
+### 3. Setup database
+
+```bash
+cd packages/server
+cp ../../.env.example .env
+# Edit .env with your API keys
+
+pnpm db:push    # Create tables
+```
+
+### 4. Run development servers
+
+```bash
+# Terminal 1: Backend
+pnpm dev:server
+
+# Terminal 2: Frontend
+pnpm dev:web
+```
+
+Open http://localhost:3000 for the dashboard.
+
+## Project Structure
 
 ```
 MyPP/
-├── core/
-│   ├── base_agent.py      # Agent base class
-│   ├── handoff.py         # Handoff protocol
-│   └── orchestrator.py    # Central orchestrator
+├── packages/
+│   └── server/              # Node.js backend
+│       ├── src/
+│       │   ├── agents/      # Agent implementations
+│       │   ├── lib/         # Core libraries
+│       │   │   ├── llm-router.ts   # Multi-provider LLM
+│       │   │   ├── queue.ts        # BullMQ jobs
+│       │   │   └── scheduler.ts    # Cron jobs
+│       │   └── routes/      # API endpoints
+│       └── prisma/          # Database schema
 │
-├── domains/
-│   ├── consumption/       # Content consumption monitoring
-│   │   ├── agent.py
-│   │   ├── config.json
-│   │   └── data/
-│   │
-│   ├── content/           # Writing queue management
-│   │   ├── agent.py
-│   │   ├── queue.json
-│   │   └── suggestions/
-│   │
-│   ├── finances/          # Investment tracking
-│   │   ├── agent.py
-│   │   ├── config.json
-│   │   └── briefs/        # ~/trades equivalent
-│   │
-│   ├── health/            # (TODO) WHOOP/sleep/exercise
-│   ├── email/             # (TODO) Inbox zero
-│   ├── personal/          # (TODO) Life admin
-│   └── writing/           # (TODO) Long-form projects
+├── frontend/                # Next.js dashboard
+│   └── app/
+│       └── page.tsx         # Main dashboard
 │
-├── handoffs/
-│   ├── pending/           # Unprocessed handoffs
-│   └── processed/         # Archived handoffs
-│
-├── briefs/                # Daily briefs
-│   └── YYYY-MM-DD.md
-│
-├── artifacts/
-│   └── decisions/         # Decision traces
-│
-└── run.py                 # Main entry point
+├── docker-compose.yml       # Local PostgreSQL + Redis
+└── .env.example             # Environment template
 ```
 
-## Creating a New Agent
+## Creating an Agent
 
-```python
-# domains/myagent/agent.py
+```typescript
+// packages/server/src/agents/my-agent.ts
+import { BaseAgent, AgentResult, AgentContext } from "./base-agent.js";
 
-from core.base_agent import BaseAgent
+export class MyAgent extends BaseAgent {
+  name = "my-agent";
+  description = "Does something useful";
 
-class MyagentAgent(BaseAgent):
-    def __init__(self, domain_name: str = 'myagent', base_path: str = None):
-        super().__init__(domain_name, base_path)
-        # Your initialization
+  async run(context: AgentContext): Promise<AgentResult> {
+    // 1. Call LLM
+    const analysis = await this.callLLM("Analyze this...", {
+      task: "analysis",
+      provider: "gemini", // or "grok", "claude", "ollama"
+    });
 
-    def run(self) -> dict:
-        # Your main logic
+    // 2. Send handoff to another agent
+    await this.sendHandoff("content", "material", { data: analysis });
 
-        # Log your thinking
-        self.log_trace("Analyzing data...", 'analysis')
-
-        # Send handoffs to other agents
-        self.send_handoff('content', 'material', {'data': '...'})
-
-        return {
-            'status': 'success',
-            'result': {...},
-            'brief': 'Summary for daily brief'
-        }
+    // 3. Return result
+    return {
+      status: "success",
+      brief: "Summary for daily brief",
+      tokensUsed: this.tokensUsed,
+      costUsd: this.costUsd,
+    };
+  }
+}
 ```
 
-## Roadmap
+## Deployment
 
-- [x] Core architecture (base agent, handoffs, orchestrator)
-- [x] Consumption agent (YouTube, Bilibili, Douban, RSS)
-- [x] Content agent (writing queue, prioritization)
-- [x] Finances agent (portfolio, congress trades, sentiment)
-- [ ] Health agent (WHOOP integration, sleep tracking)
-- [ ] Email agent (inbox zero automation)
-- [ ] Claude API integration for analysis
-- [ ] Desktop automation (mouse/keyboard injection)
-- [ ] Notification system (SMS, Telegram, etc.)
-- [ ] Web dashboard
+### Railway (Backend)
 
-## Philosophy Notes
+```bash
+railway login
+railway init
+railway add  # PostgreSQL
+railway add  # Redis
+railway variables set GEMINI_API_KEY=xxx
+railway up
+```
+
+### Vercel (Frontend)
+
+```bash
+cd frontend
+vercel
+# Set NEXT_PUBLIC_API_URL=https://your-app.railway.app
+```
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/status` | GET | System status |
+| `/agents` | GET | List agents |
+| `/agents/:name/run` | POST | Run agent |
+| `/jobs/stats` | GET | Queue statistics |
+| `/llm/providers` | GET | Available LLM providers |
+
+## Philosophy
 
 From Molly's article:
 
-> "There is a case for productive illegibility. For forgetting, for serendipity, for negative capability... Goodhart says optimize for a metric and you game your way to hollow victory."
+> "There is a case for productive illegibility... Goodhart says optimize for a metric and you game your way to hollow victory."
 
 Key safeguards:
 1. **Human in the loop** - Critical decisions require confirmation
 2. **Metis protection** - Keep the ability to override and delete modules
-3. **Escape the loop** - The meta-level outside the system that can question the system itself
+3. **Escape the loop** - The meta-level that can question the system itself
 
 ## License
 

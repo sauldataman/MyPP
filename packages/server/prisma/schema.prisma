@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Agent definitions
+model Agent {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  enabled     Boolean  @default(true)
+  schedule    String?  // Cron expression, e.g. "0 * * * *"
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  runs     AgentRun[]
+  handoffs Handoff[]  @relation("FromAgent")
+}
+
+// Agent execution history
+model AgentRun {
+  id          String   @id @default(cuid())
+  agentId     String
+  agent       Agent    @relation(fields: [agentId], references: [id])
+  status      String   // pending, running, success, failed, timeout
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  result      Json?
+  error       String?
+  brief       String?
+  tokensUsed  Int      @default(0)
+  costUsd     Float    @default(0)
+  duration    Int?     // milliseconds
+
+  @@index([agentId, startedAt])
+}
+
+// Inter-agent communication
+model Handoff {
+  id           String   @id @default(cuid())
+  fromAgentId  String
+  fromAgent    Agent    @relation("FromAgent", fields: [fromAgentId], references: [id])
+  toAgentName  String
+  type         String
+  payload      Json
+  status       String   @default("pending") // pending, processed, failed
+  createdAt    DateTime @default(now())
+  processedAt  DateTime?
+
+  @@index([toAgentName, status])
+}
+
+// Daily briefs
+model Brief {
+  id              String   @id @default(cuid())
+  date            String   @unique // YYYY-MM-DD
+  content         String
+  domainsIncluded Json     // ["x", "finances", ...]
+  createdAt       DateTime @default(now())
+}
+
+// Key-value state storage
+model State {
+  domain    String
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@id([domain, key])
+}
+
+// LLM usage tracking
+model LLMUsage {
+  id           String   @id @default(cuid())
+  provider     String   // grok, claude, gemini, ollama
+  model        String
+  inputTokens  Int
+  outputTokens Int
+  costUsd      Float
+  latencyMs    Int
+  agentName    String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([provider])
+}
+
+// Scheduled jobs
+model ScheduledJob {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  schedule    String   // Cron expression
+  handler     String   // Function name to call
+  config      Json     @default("{}")
+  enabled     Boolean  @default(true)
+  lastRun     DateTime?
+  nextRun     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

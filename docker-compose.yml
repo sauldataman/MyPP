@@ -1,0 +1,50 @@
+# Docker Compose for local development
+# Provides PostgreSQL and Redis
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: panopticon-postgres
+    environment:
+      POSTGRES_USER: panopticon
+      POSTGRES_PASSWORD: panopticon
+      POSTGRES_DB: panopticon
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panopticon"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: panopticon-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Optional: Ollama for local LLM
+  # Uncomment to run local models
+  # ollama:
+  #   image: ollama/ollama
+  #   container_name: panopticon-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+
+volumes:
+  postgres_data:
+  redis_data:
+  # ollama_data:

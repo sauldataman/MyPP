@@ -5,34 +5,24 @@ handoffs/
 artifacts/
 data/
 
-# Domain runtime data
-domains/*/data/
-domains/*/traces/
-domains/*/state.json
-domains/*/config.json
-domains/*/queue.json
-domains/*/inbox/
-domains/*/outbox/
-domains/*/suggestions/
-domains/*/briefs/
-domains/*/drafts/
-domains/*/analytics/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-.venv/
-env/
+# Environment
 .env
+.env.local
+.env.*.local
 
-# Node/Frontend
-frontend/node_modules/
-frontend/.next/
-frontend/out/
+# Node
+node_modules/
+.next/
+out/
+dist/
+
+# Package managers
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Build
+*.tsbuildinfo
 
 # IDE
 .idea/
@@ -40,3 +30,7 @@ frontend/out/
 *.swp
 *.swo
 .DS_Store
+
+# Prisma
+packages/server/prisma/*.db
+packages/server/prisma/*.db-journal

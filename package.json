@@ -1,0 +1,20 @@
+{
+  "name": "panopticon",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm -r dev",
+    "dev:server": "pnpm --filter @panopticon/server dev",
+    "dev:web": "pnpm --filter @panopticon/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "db:push": "pnpm --filter @panopticon/server db:push",
+    "db:studio": "pnpm --filter @panopticon/server db:studio"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@8.15.0"
+}
