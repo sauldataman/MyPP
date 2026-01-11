@@ -117,45 +117,213 @@ class BaseAgent(ABC):
             self.log_trace(f"Received handoff from {h.from_domain}: {h.handoff_type}", 'handoff')
         return handoffs
 
-    def spawn_subagent(self, task: str, context: dict = None) -> dict:
+    def spawn_subagent(self, task: str, context: dict = None,
+                        use_claude_code: bool = False) -> dict:
         """
         Spawn a short-lived subagent for a specific task.
 
-        Uses Claude Code in headless mode to execute the task.
-        Returns the result when complete.
+        Two modes:
+        1. use_claude_code=True: Spawn a Claude Code process (full autonomy)
+        2. use_claude_code=False: Use API call (simpler, faster)
+
+        From Molly: "spawns short-lived subagents"
         """
         self.log_trace(f"Spawning subagent for: {task}", 'subagent')
 
-        # Prepare context file
-        context_file = self.domain_path / 'subagent_context.json'
-        with open(context_file, 'w') as f:
-            json.dump({
-                'task': task,
-                'context': context or {},
-                'domain': self.domain_name,
-                'timestamp': datetime.now().isoformat()
-            }, f)
-
-        # In a real implementation, this would call Claude Code
-        # For now, return a placeholder
-        # TODO: Integrate with actual Claude Code CLI
-        return {
-            'status': 'completed',
+        # Prepare context
+        subagent_context = {
             'task': task,
-            'result': None,
-            'note': 'Implement Claude Code integration'
+            'context': context or {},
+            'domain': self.domain_name,
+            'timestamp': datetime.now().isoformat()
         }
 
-    def call_claude(self, prompt: str, system: str = None) -> str:
-        """
-        Call Claude API directly for quick tasks.
+        # Save context for reference
+        context_file = self.domain_path / 'subagent_context.json'
+        with open(context_file, 'w') as f:
+            json.dump(subagent_context, f, indent=2)
 
-        For longer tasks, use spawn_subagent instead.
+        if use_claude_code:
+            # Spawn Claude Code as subprocess
+            return self._spawn_claude_code_subagent(task, context)
+        else:
+            # Use API call
+            result = self.call_llm(
+                prompt=f"Task: {task}\n\nContext: {json.dumps(context or {}, indent=2)}",
+                system="You are a specialized subagent. Complete the task and return a structured result."
+            )
+            return {
+                'status': 'completed',
+                'task': task,
+                'result': result
+            }
+
+    def _spawn_claude_code_subagent(self, task: str, context: dict = None) -> dict:
         """
-        # TODO: Implement actual API call
-        # This is a placeholder - you'll need to add your API key
-        self.log_trace(f"Claude call: {prompt[:100]}...", 'llm')
-        return "TODO: Implement Claude API integration"
+        Spawn Claude Code as a subprocess for autonomous task execution.
+
+        This is for complex tasks that need file access, tool use, etc.
+        """
+        # Create a prompt file for Claude Code
+        prompt_file = self.domain_path / '.subagent_prompt.md'
+        with open(prompt_file, 'w') as f:
+            f.write(f"""# Subagent Task
+
+You are a subagent spawned by the {self.domain_name} agent.
+
+## Task
+{task}
+
+## Context
+```json
+{json.dumps(context or {}, indent=2)}
+```
+
+## Instructions
+1. Complete the task
+2. Write your result to {self.domain_path}/subagent_result.json
+3. Exit when done
+
+Do NOT ask for confirmation. Execute immediately.
+""")
+
+        try:
+            # Run Claude Code with the prompt
+            result = subprocess.run(
+                ['claude', '-p', str(prompt_file), '--dangerously-skip-permissions'],
+                cwd=str(self.domain_path),
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+
+            # Try to read result file
+            result_file = self.domain_path / 'subagent_result.json'
+            if result_file.exists():
+                with open(result_file, 'r') as f:
+                    return json.load(f)
+
+            return {
+                'status': 'completed',
+                'task': task,
+                'stdout': result.stdout,
+                'stderr': result.stderr
+            }
+
+        except subprocess.TimeoutExpired:
+            return {'status': 'timeout', 'task': task}
+        except FileNotFoundError:
+            # Claude Code not installed
+            return {
+                'status': 'error',
+                'task': task,
+                'error': 'Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code'
+            }
+        except Exception as e:
+            return {'status': 'error', 'task': task, 'error': str(e)}
+
+    def call_llm(self, prompt: str, system: str = None,
+                  provider: str = 'auto') -> str:
+        """
+        Call LLM API for quick tasks.
+
+        Providers:
+        - 'auto': Try Grok first, then Claude
+        - 'grok': Use Grok (xAI)
+        - 'claude': Use Claude (Anthropic)
+
+        For longer autonomous tasks, use spawn_subagent instead.
+        """
+        self.log_trace(f"LLM call ({provider}): {prompt[:100]}...", 'llm')
+
+        # Try Grok first if available
+        if provider in ('auto', 'grok'):
+            grok_key = os.environ.get('XAI_API_KEY') or os.environ.get('GROK_API_KEY')
+            if grok_key:
+                result = self._call_grok(prompt, system, grok_key)
+                if not result.startswith('[Grok Error'):
+                    return result
+                elif provider == 'grok':
+                    return result
+
+        # Fall back to Claude
+        if provider in ('auto', 'claude'):
+            claude_key = os.environ.get('ANTHROPIC_API_KEY')
+            if claude_key:
+                return self._call_claude(prompt, system, claude_key)
+
+        return "[Error: No LLM API key configured. Set XAI_API_KEY or ANTHROPIC_API_KEY]"
+
+    def _call_grok(self, prompt: str, system: str, api_key: str) -> str:
+        """Call Grok (xAI) API."""
+        import urllib.request
+        import urllib.error
+
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": "grok-2-latest",
+            "messages": messages,
+            "temperature": 0.7
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            "https://api.x.ai/v1/chat/completions",
+            data=data, headers=headers, method='POST'
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                return result["choices"][0]["message"]["content"]
+        except Exception as e:
+            return f"[Grok Error: {e}]"
+
+    def _call_claude(self, prompt: str, system: str, api_key: str) -> str:
+        """Call Claude (Anthropic) API."""
+        import urllib.request
+        import urllib.error
+
+        payload = {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        if system:
+            payload["system"] = system
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01"
+        }
+
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=data, headers=headers, method='POST'
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                return result["content"][0]["text"]
+        except Exception as e:
+            return f"[Claude Error: {e}]"
+
+    # Alias for backwards compatibility
+    def call_claude(self, prompt: str, system: str = None) -> str:
+        """Alias for call_llm with claude provider."""
+        return self.call_llm(prompt, system, provider='claude')
 
     @abstractmethod
     def run(self) -> dict:
