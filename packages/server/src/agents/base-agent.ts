@@ -6,6 +6,12 @@
 
 import { prisma } from "../lib/prisma.js";
 import { getLLMRouter, type LLMMessage, type TaskType } from "../lib/llm-router.js";
+import {
+  getSubAgentManager,
+  type SubAgentConfig,
+  type SubAgentResult,
+} from "../lib/subagent-manager.js";
+import { randomUUID } from "crypto";
 
 export interface AgentResult {
   status: "success" | "failed" | "timeout";
@@ -19,6 +25,7 @@ export interface AgentResult {
 export interface AgentContext {
   triggeredBy: "cron" | "manual" | "handoff";
   handoffData?: Record<string, unknown>;
+  sessionId?: string;
 }
 
 export abstract class BaseAgent {
@@ -26,8 +33,10 @@ export abstract class BaseAgent {
   abstract description: string;
 
   protected llm = getLLMRouter();
+  protected subAgentManager = getSubAgentManager();
   protected tokensUsed = 0;
   protected costUsd = 0;
+  protected sessionId = randomUUID();
 
   /**
    * Main execution method - implement in subclass
@@ -180,5 +189,61 @@ export abstract class BaseAgent {
       error: "❌",
     }[level];
     console.log(`${prefix} [${this.name}] ${message}`);
+  }
+
+  /**
+   * Delegate a task to a sub-agent with specific skills
+   *
+   * Sub-agents use Claude with tools to complete specialized tasks autonomously.
+   *
+   * @example
+   * const result = await this.delegateToSubAgent({
+   *   name: "data-analyzer",
+   *   description: "Analyzes data patterns",
+   *   skills: ["fetch_url", "parse_json", "aggregate_data"],
+   * }, "Fetch https://api.example.com/data and calculate the average price");
+   */
+  protected async delegateToSubAgent(
+    config: Omit<SubAgentConfig, "name"> & { name?: string },
+    task: string
+  ): Promise<SubAgentResult> {
+    const subAgentConfig: SubAgentConfig = {
+      name: config.name || `${this.name}-subagent-${Date.now()}`,
+      description: config.description,
+      skills: config.skills,
+      systemPrompt: config.systemPrompt,
+      model: config.model,
+      maxIterations: config.maxIterations,
+      temperature: config.temperature,
+    };
+
+    this.log(`Delegating task to sub-agent: ${subAgentConfig.name}`);
+
+    const result = await this.subAgentManager.runSubAgent(subAgentConfig, task, {
+      agentName: this.name,
+      sessionId: this.sessionId,
+    });
+
+    // Track usage from sub-agent
+    this.tokensUsed += result.tokensUsed.input + result.tokensUsed.output;
+    this.costUsd += result.costUsd;
+
+    if (result.success) {
+      this.log(
+        `Sub-agent completed: ${result.toolCalls.length} tool calls, ` +
+          `${result.iterations} iterations`
+      );
+    } else {
+      this.log(`Sub-agent failed: ${result.response}`, "error");
+    }
+
+    return result;
+  }
+
+  /**
+   * Check if Claude sub-agents are available
+   */
+  protected isSubAgentAvailable(): boolean {
+    return this.subAgentManager.isAvailable();
   }
 }

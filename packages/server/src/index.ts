@@ -12,6 +12,8 @@ import { prisma } from "./lib/prisma.js";
 import { getLLMRouter } from "./lib/llm-router.js";
 import { scheduler, initializeScheduledJobs } from "./lib/scheduler.js";
 import { getQueueStats } from "./lib/queue.js";
+import { registerBuiltinSkills, skillRegistry } from "./lib/skills/index.js";
+import { getSubAgentManager } from "./lib/subagent-manager.js";
 
 // Import routes
 import { agentsRouter } from "./routes/agents.js";
@@ -130,6 +132,58 @@ app.use("/agents", agentsRouter);
 app.use("/jobs", jobsRouter);
 
 // ============================================================================
+// Skills & Sub-agent Routes
+// ============================================================================
+
+// List all registered skills
+app.get("/skills", (req, res) => {
+  const skills = skillRegistry.getAll().map((s) => ({
+    name: s.name,
+    description: s.description,
+  }));
+  res.json({ skills, count: skills.length });
+});
+
+// Check sub-agent availability
+app.get("/subagent/status", (req, res) => {
+  const manager = getSubAgentManager();
+  res.json({
+    available: manager.isAvailable(),
+    skillCount: skillRegistry.list().length,
+  });
+});
+
+// Run a sub-agent task (for testing)
+app.post("/subagent/run", async (req, res) => {
+  try {
+    const { name, description, skills, task, systemPrompt } = req.body;
+
+    if (!task) {
+      return res.status(400).json({ error: "task is required" });
+    }
+
+    const manager = getSubAgentManager();
+    if (!manager.isAvailable()) {
+      return res.status(503).json({ error: "Claude API not configured" });
+    }
+
+    const result = await manager.runSubAgent(
+      {
+        name: name || "test-agent",
+        description: description || "Test agent",
+        skills: skills || skillRegistry.list(),
+        systemPrompt,
+      },
+      task
+    );
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// ============================================================================
 // Start server
 // ============================================================================
 
@@ -149,6 +203,18 @@ async function start() {
   const llm = getLLMRouter();
   const providers = llm.getAvailableProviders();
   console.log(`✅ LLM providers available: ${providers.join(", ") || "none"}`);
+
+  // Register built-in skills
+  registerBuiltinSkills();
+  console.log(`✅ Skills registered: ${skillRegistry.list().join(", ")}`);
+
+  // Check sub-agent availability
+  const subAgentManager = getSubAgentManager();
+  if (subAgentManager.isAvailable()) {
+    console.log("✅ Claude sub-agent support available");
+  } else {
+    console.log("⚠️  Claude sub-agent not available (missing ANTHROPIC_API_KEY)");
+  }
 
   // Initialize scheduled jobs
   await initializeScheduledJobs();

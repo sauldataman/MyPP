@@ -11,6 +11,7 @@ import { BaseAgent, type AgentContext } from "./base-agent.js";
 
 // Import all agents
 import { XAgent } from "./x-agent.js";
+import { ResearchAgent } from "./research-agent.js";
 // import { FinancesAgent } from "./finances-agent.js";
 // import { ContentAgent } from "./content-agent.js";
 // ... add more as needed
@@ -18,6 +19,7 @@ import { XAgent } from "./x-agent.js";
 // Agent registry
 const agents: Map<string, BaseAgent> = new Map([
   ["x", new XAgent()],
+  ["research", new ResearchAgent()],
   // ["finances", new FinancesAgent()],
   // ["content", new ContentAgent()],
 ]);
