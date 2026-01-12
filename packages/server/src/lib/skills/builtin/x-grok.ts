@@ -1,8 +1,16 @@
 /**
- * X/Twitter Skills
+ * X/Twitter Grok Skills
  *
- * Skills for interacting with X/Twitter using Grok API.
- * Grok has special capabilities for X data analysis.
+ * Skills for ANALYZING X/Twitter content using Grok API.
+ * Grok has real-time access to X data for analysis.
+ *
+ * Use these for:
+ * - Analyzing ANY user's tweets (not just your own)
+ * - Sentiment analysis
+ * - Trend detection
+ * - Content summarization
+ *
+ * For account MANAGEMENT (post, delete, follow), use x-api.ts instead.
  */
 
 import { z } from "zod";
@@ -287,7 +295,7 @@ If no relevant tweets are found, indicate that clearly.`;
   },
 };
 
-export const xTwitterSkills = [
+export const xGrokSkills = [
   fetchUserTweetsSkill,
   analyzeTweetPatternsSkill,
   generateTweetSummarySkill,
