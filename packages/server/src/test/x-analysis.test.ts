@@ -16,7 +16,10 @@
  *   npx tsx src/test/x-analysis.test.ts sama 48
  */
 
-import "dotenv/config";
+// Load .env from project root if DOTENV_CONFIG_PATH is set
+import { config } from "dotenv";
+config({ path: process.env.DOTENV_CONFIG_PATH || "../../.env" });
+
 import { ResearchAgent } from "../agents/research-agent.js";
 import { registerBuiltinSkills } from "../lib/skills/index.js";
 

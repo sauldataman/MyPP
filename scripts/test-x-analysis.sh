@@ -86,7 +86,7 @@ fi
 # Navigate to server package
 cd packages/server
 
-# Run the test
+# Run the test (set DOTENV_CONFIG_PATH to root .env)
 echo "🚀 Running X Analysis test..."
 echo
-npx tsx src/test/x-analysis.test.ts "${1:-elonmusk}" "${2:-24}"
+DOTENV_CONFIG_PATH="$PROJECT_ROOT/.env" npx tsx src/test/x-analysis.test.ts "${1:-elonmusk}" "${2:-24}"
