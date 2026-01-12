@@ -346,6 +346,325 @@ export const getUserTweetsSkill: Skill = {
   },
 };
 
+/**
+ * Get your following list (people you follow)
+ */
+export const getMyFollowingSkill: Skill = {
+  name: "x_get_my_following",
+  description: "Get list of users you are following",
+  inputSchema: z.object({
+    limit: z.number().min(1).max(1000).default(100).describe("Number of users to fetch"),
+    paginationToken: z.string().optional().describe("Token for pagination"),
+  }),
+  execute: async (input): Promise<SkillResult> => {
+    const { limit = 100, paginationToken } = input as {
+      limit?: number;
+      paginationToken?: string;
+    };
+
+    // First get my user ID
+    const meResult = await callXAPI("/users/me");
+    if (!meResult.success) {
+      return { success: false, error: meResult.error };
+    }
+
+    const userId = (meResult.data as { data: { id: string } }).data.id;
+
+    const params: Record<string, string> = {
+      max_results: String(Math.min(limit, 1000)),
+      "user.fields": "description,public_metrics,created_at,profile_image_url,username",
+    };
+
+    if (paginationToken) {
+      params.pagination_token = paginationToken;
+    }
+
+    const result = await callXAPI(`/users/${userId}/following`, { params });
+
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    const data = result.data as {
+      data: Array<{ id: string; username: string; name: string }>;
+      meta?: { next_token?: string; result_count: number };
+    };
+
+    return {
+      success: true,
+      data: {
+        following: data.data || [],
+        count: data.meta?.result_count || 0,
+        nextToken: data.meta?.next_token,
+        hasMore: !!data.meta?.next_token,
+      },
+    };
+  },
+};
+
+/**
+ * Get your followers list
+ */
+export const getMyFollowersSkill: Skill = {
+  name: "x_get_my_followers",
+  description: "Get list of users following you",
+  inputSchema: z.object({
+    limit: z.number().min(1).max(1000).default(100).describe("Number of users to fetch"),
+    paginationToken: z.string().optional().describe("Token for pagination"),
+  }),
+  execute: async (input): Promise<SkillResult> => {
+    const { limit = 100, paginationToken } = input as {
+      limit?: number;
+      paginationToken?: string;
+    };
+
+    // First get my user ID
+    const meResult = await callXAPI("/users/me");
+    if (!meResult.success) {
+      return { success: false, error: meResult.error };
+    }
+
+    const userId = (meResult.data as { data: { id: string } }).data.id;
+
+    const params: Record<string, string> = {
+      max_results: String(Math.min(limit, 1000)),
+      "user.fields": "description,public_metrics,created_at,profile_image_url,username",
+    };
+
+    if (paginationToken) {
+      params.pagination_token = paginationToken;
+    }
+
+    const result = await callXAPI(`/users/${userId}/followers`, { params });
+
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    const data = result.data as {
+      data: Array<{ id: string; username: string; name: string }>;
+      meta?: { next_token?: string; result_count: number };
+    };
+
+    return {
+      success: true,
+      data: {
+        followers: data.data || [],
+        count: data.meta?.result_count || 0,
+        nextToken: data.meta?.next_token,
+        hasMore: !!data.meta?.next_token,
+      },
+    };
+  },
+};
+
+/**
+ * Follow a user
+ */
+export const followUserSkill: Skill = {
+  name: "x_follow_user",
+  description: "Follow a user by their username or ID",
+  inputSchema: z.object({
+    username: z.string().optional().describe("Username to follow (without @)"),
+    userId: z.string().optional().describe("User ID to follow"),
+  }),
+  execute: async (input): Promise<SkillResult> => {
+    const { username, userId } = input as {
+      username?: string;
+      userId?: string;
+    };
+
+    if (!username && !userId) {
+      return { success: false, error: "Either username or userId is required" };
+    }
+
+    // Get my user ID
+    const meResult = await callXAPI("/users/me");
+    if (!meResult.success) {
+      return { success: false, error: meResult.error };
+    }
+    const myUserId = (meResult.data as { data: { id: string } }).data.id;
+
+    // Get target user ID if username provided
+    let targetUserId = userId;
+    if (username && !targetUserId) {
+      const userResult = await callXAPI(`/users/by/username/${username}`);
+      if (!userResult.success) {
+        return { success: false, error: userResult.error };
+      }
+      targetUserId = (userResult.data as { data: { id: string } }).data.id;
+    }
+
+    // Follow the user
+    const result = await callXAPI(`/users/${myUserId}/following`, {
+      method: "POST",
+      body: { target_user_id: targetUserId },
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    return {
+      success: true,
+      data: {
+        followed: true,
+        username,
+        userId: targetUserId,
+      },
+    };
+  },
+};
+
+/**
+ * Unfollow a user
+ */
+export const unfollowUserSkill: Skill = {
+  name: "x_unfollow_user",
+  description: "Unfollow a user by their username or ID",
+  inputSchema: z.object({
+    username: z.string().optional().describe("Username to unfollow (without @)"),
+    userId: z.string().optional().describe("User ID to unfollow"),
+  }),
+  execute: async (input): Promise<SkillResult> => {
+    const { username, userId } = input as {
+      username?: string;
+      userId?: string;
+    };
+
+    if (!username && !userId) {
+      return { success: false, error: "Either username or userId is required" };
+    }
+
+    // Get my user ID
+    const meResult = await callXAPI("/users/me");
+    if (!meResult.success) {
+      return { success: false, error: meResult.error };
+    }
+    const myUserId = (meResult.data as { data: { id: string } }).data.id;
+
+    // Get target user ID if username provided
+    let targetUserId = userId;
+    let targetUsername = username;
+    if (username && !targetUserId) {
+      const userResult = await callXAPI(`/users/by/username/${username}`);
+      if (!userResult.success) {
+        return { success: false, error: userResult.error };
+      }
+      targetUserId = (userResult.data as { data: { id: string } }).data.id;
+    }
+
+    // Unfollow the user
+    const result = await callXAPI(`/users/${myUserId}/following/${targetUserId}`, {
+      method: "DELETE",
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    return {
+      success: true,
+      data: {
+        unfollowed: true,
+        username: targetUsername,
+        userId: targetUserId,
+      },
+    };
+  },
+};
+
+/**
+ * Batch unfollow multiple users
+ */
+export const batchUnfollowSkill: Skill = {
+  name: "x_batch_unfollow",
+  description: "Unfollow multiple users at once. Use with caution - respects rate limits.",
+  inputSchema: z.object({
+    usernames: z.array(z.string()).optional().describe("List of usernames to unfollow"),
+    userIds: z.array(z.string()).optional().describe("List of user IDs to unfollow"),
+    delayMs: z.number().min(1000).default(2000).describe("Delay between unfollows (ms) to respect rate limits"),
+  }),
+  execute: async (input): Promise<SkillResult> => {
+    const { usernames = [], userIds = [], delayMs = 2000 } = input as {
+      usernames?: string[];
+      userIds?: string[];
+      delayMs?: number;
+    };
+
+    if (usernames.length === 0 && userIds.length === 0) {
+      return { success: false, error: "Provide usernames or userIds to unfollow" };
+    }
+
+    // Get my user ID
+    const meResult = await callXAPI("/users/me");
+    if (!meResult.success) {
+      return { success: false, error: meResult.error };
+    }
+    const myUserId = (meResult.data as { data: { id: string } }).data.id;
+
+    const results: Array<{ username?: string; userId: string; success: boolean; error?: string }> = [];
+
+    // Process usernames first - need to lookup IDs
+    for (const username of usernames) {
+      const userResult = await callXAPI(`/users/by/username/${username}`);
+      if (!userResult.success) {
+        results.push({ username, userId: "", success: false, error: userResult.error });
+        continue;
+      }
+
+      const targetUserId = (userResult.data as { data: { id: string } }).data.id;
+
+      const unfollowResult = await callXAPI(`/users/${myUserId}/following/${targetUserId}`, {
+        method: "DELETE",
+      });
+
+      results.push({
+        username,
+        userId: targetUserId,
+        success: unfollowResult.success,
+        error: unfollowResult.error,
+      });
+
+      // Rate limit delay
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    // Process user IDs
+    for (const targetUserId of userIds) {
+      const unfollowResult = await callXAPI(`/users/${myUserId}/following/${targetUserId}`, {
+        method: "DELETE",
+      });
+
+      results.push({
+        userId: targetUserId,
+        success: unfollowResult.success,
+        error: unfollowResult.error,
+      });
+
+      // Rate limit delay
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    const failCount = results.length - successCount;
+
+    return {
+      success: true,
+      data: {
+        total: results.length,
+        succeeded: successCount,
+        failed: failCount,
+        results,
+      },
+    };
+  },
+};
+
 export const xApiSkills = [
   getMyProfileSkill,
   getMyTweetsSkill,
@@ -355,4 +674,9 @@ export const xApiSkills = [
   getMyMentionsSkill,
   lookupUserSkill,
   getUserTweetsSkill,
+  getMyFollowingSkill,
+  getMyFollowersSkill,
+  followUserSkill,
+  unfollowUserSkill,
+  batchUnfollowSkill,
 ];
