@@ -8,6 +8,7 @@ import { webSkills } from "./web.js";
 import { dataSkills } from "./data.js";
 import { databaseSkills } from "./database.js";
 import { xTwitterSkills } from "./x-twitter.js";
+import { xApiSkills } from "./x-api.js";
 import { filesystemSkills } from "./filesystem.js";
 import { skillRegistry } from "../registry.js";
 
@@ -17,6 +18,7 @@ export const builtinSkills = [
   ...dataSkills,
   ...databaseSkills,
   ...xTwitterSkills,
+  ...xApiSkills,
   ...filesystemSkills,
 ];
 
@@ -25,7 +27,8 @@ export const skillCategories = {
   web: webSkills,
   data: dataSkills,
   database: databaseSkills,
-  xTwitter: xTwitterSkills,
+  xGrok: xTwitterSkills,   // Grok-based (analyze any user)
+  xApi: xApiSkills,        // X API (manage own account)
   filesystem: filesystemSkills,
 };
 
@@ -41,4 +44,5 @@ export * from "./web.js";
 export * from "./data.js";
 export * from "./database.js";
 export * from "./x-twitter.js";
+export * from "./x-api.js";
 export * from "./filesystem.js";
