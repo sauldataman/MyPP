@@ -26,26 +26,35 @@ import { createHmac, randomBytes } from "crypto";
 // X API v2 configuration
 const X_API_BASE = "https://api.twitter.com/2";
 
-// OAuth 1.0a credentials
-const OAUTH_CONFIG = {
-  apiKey: process.env.X_API_KEY || "",
-  apiSecret: process.env.X_API_SECRET || "",
-  accessToken: process.env.X_ACCESS_TOKEN || "",
-  accessSecret: process.env.X_ACCESS_SECRET || "",
-};
+/**
+ * Get OAuth 1.0a credentials (read lazily from env to handle late initialization)
+ */
+function getOAuthConfig() {
+  return {
+    apiKey: process.env.X_API_KEY || "",
+    apiSecret: process.env.X_API_SECRET || "",
+    accessToken: process.env.X_ACCESS_TOKEN || "",
+    accessSecret: process.env.X_ACCESS_SECRET || "",
+  };
+}
 
-// Bearer token (for app-only endpoints)
-const X_BEARER_TOKEN = process.env.X_BEARER_TOKEN || "";
+/**
+ * Get Bearer token (read lazily from env)
+ */
+function getBearerToken(): string {
+  return process.env.X_BEARER_TOKEN || "";
+}
 
 /**
  * Check if OAuth 1.0a is configured
  */
 function hasOAuth1a(): boolean {
+  const config = getOAuthConfig();
   return !!(
-    OAUTH_CONFIG.apiKey &&
-    OAUTH_CONFIG.apiSecret &&
-    OAUTH_CONFIG.accessToken &&
-    OAUTH_CONFIG.accessSecret
+    config.apiKey &&
+    config.apiSecret &&
+    config.accessToken &&
+    config.accessSecret
   );
 }
 
@@ -75,7 +84,8 @@ function generateOAuthSignature(
   ].join("&");
 
   // Create signing key
-  const signingKey = `${encodeURIComponent(OAUTH_CONFIG.apiSecret)}&${encodeURIComponent(OAUTH_CONFIG.accessSecret)}`;
+  const config = getOAuthConfig();
+  const signingKey = `${encodeURIComponent(config.apiSecret)}&${encodeURIComponent(config.accessSecret)}`;
 
   // Generate HMAC-SHA1 signature
   const signature = createHmac("sha1", signingKey)
@@ -89,9 +99,10 @@ function generateOAuthSignature(
  * Build OAuth 1.0a Authorization header
  */
 function buildOAuthHeader(method: string, url: string, params: Record<string, string> = {}): string {
+  const config = getOAuthConfig();
   const oauthParams: Record<string, string> = {
-    oauth_consumer_key: OAUTH_CONFIG.apiKey,
-    oauth_token: OAUTH_CONFIG.accessToken,
+    oauth_consumer_key: config.apiKey,
+    oauth_token: config.accessToken,
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
     oauth_nonce: randomBytes(16).toString("hex"),
@@ -133,7 +144,8 @@ async function callXAPI(
     };
   }
 
-  if (!useOAuth && !X_BEARER_TOKEN) {
+  const bearerToken = getBearerToken();
+  if (!useOAuth && !bearerToken) {
     return { success: false, error: "No authentication configured. Set OAuth 1.0a credentials or X_BEARER_TOKEN" };
   }
 
@@ -153,7 +165,7 @@ async function callXAPI(
       headers.Authorization = buildOAuthHeader(method, `${X_API_BASE}${endpoint}`, params);
     } else {
       // Use Bearer Token
-      headers.Authorization = `Bearer ${X_BEARER_TOKEN}`;
+      headers.Authorization = `Bearer ${bearerToken}`;
     }
 
     const response = await fetch(url, {
