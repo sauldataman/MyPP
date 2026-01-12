@@ -1,0 +1,28 @@
+{
+  "name": "Daily Analysis Watchlist",
+  "description": "Accounts to analyze daily for social media insights",
+  "updated": "2026-01-12",
+  "settings": {
+    "hoursLookback": 24,
+    "maxPostsPerUser": 50,
+    "promptTemplate": "daily-social-analysis.md",
+    "outputDir": "reports/daily-analysis"
+  },
+  "accounts": [
+    {
+      "username": "elonmusk",
+      "enabled": true,
+      "notes": "Tech/business communication style"
+    },
+    {
+      "username": "naval",
+      "enabled": true,
+      "notes": "Philosophy/wealth wisdom threads"
+    },
+    {
+      "username": "sahaborawake",
+      "enabled": true,
+      "notes": "Startup/VC insights"
+    }
+  ]
+}
