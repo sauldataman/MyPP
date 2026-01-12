@@ -1,10 +1,9 @@
 /**
  * Test OAuth 1.0a authentication
+ *
+ * Environment variables are loaded by the shell script via `source .env`
  */
 import { createHmac, randomBytes } from "crypto";
-import { config } from "dotenv";
-
-config({ path: process.env.DOTENV_CONFIG_PATH || ".env" });
 
 const OAUTH_CONFIG = {
   apiKey: process.env.X_API_KEY || "",
