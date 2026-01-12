@@ -54,8 +54,10 @@ EOF
     fi
 fi
 
-# Load environment
+# Load environment and export variables
+set -a  # automatically export all variables
 source .env 2>/dev/null || true
+set +a
 
 # Check required keys
 if [ -z "$XAI_API_KEY" ] || [ "$XAI_API_KEY" = "your-grok-key" ]; then
