@@ -80,9 +80,9 @@ async function test() {
   const userId = meData.data.id;
   console.log(`✅ Got user ID: ${userId} (@${meData.data.username})`);
 
-  // Step 2: Try to get followers
-  console.log("\n2️⃣ Testing /users/{id}/followers endpoint...");
-  const followersBaseUrl = `https://api.twitter.com/2/users/${userId}/followers`;
+  // Step 2: Try to get following (people YOU follow)
+  console.log("\n2️⃣ Testing /users/{id}/following endpoint...");
+  const followersBaseUrl = `https://api.twitter.com/2/users/${userId}/following`;
   const params = { max_results: "10" };
   const fullUrl = `${followersBaseUrl}?${new URLSearchParams(params)}`;
 
@@ -93,20 +93,16 @@ async function test() {
   const followersData = await followersResponse.json();
 
   if (!followersResponse.ok) {
-    console.log(`❌ Followers endpoint failed (${followersResponse.status}):`);
+    console.log(`❌ Following endpoint failed (${followersResponse.status}):`);
     console.log(JSON.stringify(followersData, null, 2));
 
     if (followersData.reason === "client-not-enrolled") {
       console.log("\n⚠️  This confirms the issue is API ACCESS LEVEL, not authentication.");
-      console.log("   Your Basic tier likely doesn't include the followers endpoint.");
-      console.log("   Options:");
-      console.log("   1. Upgrade to Pro tier ($5000/month) - includes all endpoints");
-      console.log("   2. Use Grok API instead for analysis (you have this working)");
-      console.log("   3. Check Twitter's API tier comparison: https://developer.twitter.com/en/docs/twitter-api");
+      console.log("   Your Basic tier likely doesn't include the following endpoint.");
     }
   } else {
-    console.log("✅ Followers endpoint works!");
-    console.log(`   Found ${followersData.data?.length || 0} followers`);
+    console.log("✅ Following endpoint works!");
+    console.log(`   Found ${followersData.data?.length || 0} users you follow`);
     console.log(JSON.stringify(followersData, null, 2));
   }
 }
