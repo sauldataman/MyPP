@@ -2,12 +2,18 @@
  * X API Skills
  *
  * Skills for managing your own X/Twitter account via official X API.
- * Requires X_BEARER_TOKEN or OAuth credentials.
+ *
+ * Authentication:
+ * - OAuth 1.0a User Context (required for most endpoints)
+ *   Set: X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET
+ *
+ * - Bearer Token (Application-Only) - limited endpoints
+ *   Set: X_BEARER_TOKEN
  *
  * Use cases:
  * - Post/delete tweets from your account
  * - Get your own timeline
- * - Manage your account
+ * - Manage followers/following
  *
  * Note: This is different from Grok API which is for analyzing ANY user's tweets.
  * X API is for managing YOUR OWN account.
@@ -15,13 +21,97 @@
 
 import { z } from "zod";
 import { Skill, SkillResult } from "../types.js";
+import { createHmac, randomBytes } from "crypto";
 
 // X API v2 configuration
 const X_API_BASE = "https://api.twitter.com/2";
+
+// OAuth 1.0a credentials
+const OAUTH_CONFIG = {
+  apiKey: process.env.X_API_KEY || "",
+  apiSecret: process.env.X_API_SECRET || "",
+  accessToken: process.env.X_ACCESS_TOKEN || "",
+  accessSecret: process.env.X_ACCESS_SECRET || "",
+};
+
+// Bearer token (for app-only endpoints)
 const X_BEARER_TOKEN = process.env.X_BEARER_TOKEN || "";
 
 /**
- * Helper to call X API
+ * Check if OAuth 1.0a is configured
+ */
+function hasOAuth1a(): boolean {
+  return !!(
+    OAUTH_CONFIG.apiKey &&
+    OAUTH_CONFIG.apiSecret &&
+    OAUTH_CONFIG.accessToken &&
+    OAUTH_CONFIG.accessSecret
+  );
+}
+
+/**
+ * Generate OAuth 1.0a signature
+ */
+function generateOAuthSignature(
+  method: string,
+  url: string,
+  params: Record<string, string>,
+  oauthParams: Record<string, string>
+): string {
+  // Combine all parameters
+  const allParams = { ...params, ...oauthParams };
+
+  // Sort and encode parameters
+  const sortedParams = Object.keys(allParams)
+    .sort()
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(allParams[key])}`)
+    .join("&");
+
+  // Create signature base string
+  const signatureBase = [
+    method.toUpperCase(),
+    encodeURIComponent(url.split("?")[0]),
+    encodeURIComponent(sortedParams),
+  ].join("&");
+
+  // Create signing key
+  const signingKey = `${encodeURIComponent(OAUTH_CONFIG.apiSecret)}&${encodeURIComponent(OAUTH_CONFIG.accessSecret)}`;
+
+  // Generate HMAC-SHA1 signature
+  const signature = createHmac("sha1", signingKey)
+    .update(signatureBase)
+    .digest("base64");
+
+  return signature;
+}
+
+/**
+ * Build OAuth 1.0a Authorization header
+ */
+function buildOAuthHeader(method: string, url: string, params: Record<string, string> = {}): string {
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: OAUTH_CONFIG.apiKey,
+    oauth_token: OAUTH_CONFIG.accessToken,
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+    oauth_nonce: randomBytes(16).toString("hex"),
+    oauth_version: "1.0",
+  };
+
+  // Generate signature
+  oauthParams.oauth_signature = generateOAuthSignature(method, url, params, oauthParams);
+
+  // Build header string
+  const headerParams = Object.keys(oauthParams)
+    .sort()
+    .map((key) => `${encodeURIComponent(key)}="${encodeURIComponent(oauthParams[key])}"`)
+    .join(", ");
+
+  return `OAuth ${headerParams}`;
+}
+
+/**
+ * Helper to call X API with OAuth 1.0a or Bearer Token
  */
 async function callXAPI(
   endpoint: string,
@@ -29,27 +119,46 @@ async function callXAPI(
     method?: string;
     body?: Record<string, unknown>;
     params?: Record<string, string>;
+    requireUserContext?: boolean;
   } = {}
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
-  if (!X_BEARER_TOKEN) {
-    return { success: false, error: "X_BEARER_TOKEN not configured" };
+  const { method = "GET", body, params = {}, requireUserContext = false } = options;
+
+  // Check authentication
+  const useOAuth = hasOAuth1a();
+  if (requireUserContext && !useOAuth) {
+    return {
+      success: false,
+      error: "This endpoint requires OAuth 1.0a User Context. Set X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET",
+    };
   }
 
-  const { method = "GET", body, params } = options;
+  if (!useOAuth && !X_BEARER_TOKEN) {
+    return { success: false, error: "No authentication configured. Set OAuth 1.0a credentials or X_BEARER_TOKEN" };
+  }
 
   let url = `${X_API_BASE}${endpoint}`;
-  if (params) {
+  if (Object.keys(params).length > 0) {
     const searchParams = new URLSearchParams(params);
     url += `?${searchParams.toString()}`;
   }
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (useOAuth) {
+      // Use OAuth 1.0a
+      headers.Authorization = buildOAuthHeader(method, `${X_API_BASE}${endpoint}`, params);
+    } else {
+      // Use Bearer Token
+      headers.Authorization = `Bearer ${X_BEARER_TOKEN}`;
+    }
+
     const response = await fetch(url, {
       method,
-      headers: {
-        Authorization: `Bearer ${X_BEARER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
 
@@ -362,8 +471,8 @@ export const getMyFollowingSkill: Skill = {
       paginationToken?: string;
     };
 
-    // First get my user ID
-    const meResult = await callXAPI("/users/me");
+    // First get my user ID (requires user context)
+    const meResult = await callXAPI("/users/me", { requireUserContext: true });
     if (!meResult.success) {
       return { success: false, error: meResult.error };
     }
@@ -379,7 +488,7 @@ export const getMyFollowingSkill: Skill = {
       params.pagination_token = paginationToken;
     }
 
-    const result = await callXAPI(`/users/${userId}/following`, { params });
+    const result = await callXAPI(`/users/${userId}/following`, { params, requireUserContext: true });
 
     if (!result.success) {
       return { success: false, error: result.error };
@@ -418,8 +527,8 @@ export const getMyFollowersSkill: Skill = {
       paginationToken?: string;
     };
 
-    // First get my user ID
-    const meResult = await callXAPI("/users/me");
+    // First get my user ID (requires user context)
+    const meResult = await callXAPI("/users/me", { requireUserContext: true });
     if (!meResult.success) {
       return { success: false, error: meResult.error };
     }
@@ -435,7 +544,7 @@ export const getMyFollowersSkill: Skill = {
       params.pagination_token = paginationToken;
     }
 
-    const result = await callXAPI(`/users/${userId}/followers`, { params });
+    const result = await callXAPI(`/users/${userId}/followers`, { params, requireUserContext: true });
 
     if (!result.success) {
       return { success: false, error: result.error };
@@ -478,8 +587,8 @@ export const followUserSkill: Skill = {
       return { success: false, error: "Either username or userId is required" };
     }
 
-    // Get my user ID
-    const meResult = await callXAPI("/users/me");
+    // Get my user ID (requires user context)
+    const meResult = await callXAPI("/users/me", { requireUserContext: true });
     if (!meResult.success) {
       return { success: false, error: meResult.error };
     }
@@ -488,17 +597,18 @@ export const followUserSkill: Skill = {
     // Get target user ID if username provided
     let targetUserId = userId;
     if (username && !targetUserId) {
-      const userResult = await callXAPI(`/users/by/username/${username}`);
+      const userResult = await callXAPI(`/users/by/username/${username}`, { requireUserContext: true });
       if (!userResult.success) {
         return { success: false, error: userResult.error };
       }
       targetUserId = (userResult.data as { data: { id: string } }).data.id;
     }
 
-    // Follow the user
+    // Follow the user (requires user context)
     const result = await callXAPI(`/users/${myUserId}/following`, {
       method: "POST",
       body: { target_user_id: targetUserId },
+      requireUserContext: true,
     });
 
     if (!result.success) {
@@ -536,8 +646,8 @@ export const unfollowUserSkill: Skill = {
       return { success: false, error: "Either username or userId is required" };
     }
 
-    // Get my user ID
-    const meResult = await callXAPI("/users/me");
+    // Get my user ID (requires user context)
+    const meResult = await callXAPI("/users/me", { requireUserContext: true });
     if (!meResult.success) {
       return { success: false, error: meResult.error };
     }
@@ -547,16 +657,17 @@ export const unfollowUserSkill: Skill = {
     let targetUserId = userId;
     let targetUsername = username;
     if (username && !targetUserId) {
-      const userResult = await callXAPI(`/users/by/username/${username}`);
+      const userResult = await callXAPI(`/users/by/username/${username}`, { requireUserContext: true });
       if (!userResult.success) {
         return { success: false, error: userResult.error };
       }
       targetUserId = (userResult.data as { data: { id: string } }).data.id;
     }
 
-    // Unfollow the user
+    // Unfollow the user (requires user context)
     const result = await callXAPI(`/users/${myUserId}/following/${targetUserId}`, {
       method: "DELETE",
+      requireUserContext: true,
     });
 
     if (!result.success) {
@@ -596,8 +707,8 @@ export const batchUnfollowSkill: Skill = {
       return { success: false, error: "Provide usernames or userIds to unfollow" };
     }
 
-    // Get my user ID
-    const meResult = await callXAPI("/users/me");
+    // Get my user ID (requires user context)
+    const meResult = await callXAPI("/users/me", { requireUserContext: true });
     if (!meResult.success) {
       return { success: false, error: meResult.error };
     }
@@ -607,7 +718,7 @@ export const batchUnfollowSkill: Skill = {
 
     // Process usernames first - need to lookup IDs
     for (const username of usernames) {
-      const userResult = await callXAPI(`/users/by/username/${username}`);
+      const userResult = await callXAPI(`/users/by/username/${username}`, { requireUserContext: true });
       if (!userResult.success) {
         results.push({ username, userId: "", success: false, error: userResult.error });
         continue;
@@ -617,6 +728,7 @@ export const batchUnfollowSkill: Skill = {
 
       const unfollowResult = await callXAPI(`/users/${myUserId}/following/${targetUserId}`, {
         method: "DELETE",
+        requireUserContext: true,
       });
 
       results.push({
@@ -636,6 +748,7 @@ export const batchUnfollowSkill: Skill = {
     for (const targetUserId of userIds) {
       const unfollowResult = await callXAPI(`/users/${myUserId}/following/${targetUserId}`, {
         method: "DELETE",
+        requireUserContext: true,
       });
 
       results.push({
