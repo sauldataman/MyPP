@@ -1,0 +1,19 @@
+# Python dependencies for Panopticon analysis jobs
+
+# HTTP client
+httpx>=0.27.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Data processing
+pandas>=2.0.0
+
+# YAML config support
+pyyaml>=6.0
+
+# Date/time handling
+python-dateutil>=2.8.0
+
+# Rich console output
+rich>=13.0.0
