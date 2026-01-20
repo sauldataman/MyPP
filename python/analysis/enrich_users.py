@@ -2,7 +2,7 @@
 """
 Enrich Twitter Archive Data with User Details
 
-Takes mutual follows (or any user ID list) and fetches details via Grok API:
+Takes mutual follows (or any user ID list) and fetches details via X API:
 - Username (@handle)
 - Display Name (nickname)
 - Follower count
@@ -25,7 +25,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.config import init_env, get_reports_dir
-from utils.grok import get_api_key, chat_completion
+from utils.x_api import get_bearer_token, enrich_users_via_api
 
 try:
     from rich.console import Console
@@ -312,14 +312,13 @@ def main():
     parser.add_argument("--type", choices=["mutual", "following", "followers", "not_following_back"],
                         default="mutual", help="Which list to enrich (default: mutual)")
     parser.add_argument("--limit", type=int, default=0, help="Limit number of users to process (0 = all)")
-    parser.add_argument("--accurate", action="store_true", help="Use single-user lookup mode (slower but more accurate)")
     args = parser.parse_args()
 
     # Initialize
     init_env()
 
-    if not get_api_key():
-        print("❌ XAI_API_KEY or GROK_API_KEY required for enrichment")
+    if not get_bearer_token():
+        print("❌ X_BEARER_TOKEN required for enrichment")
         sys.exit(1)
 
     data_dir = Path(args.archive_path)
@@ -376,8 +375,8 @@ def main():
         target_list = target_list[:args.limit]
         print(f"   (Limited to {args.limit} users)")
 
-    # Enrich with Grok
-    enriched_users = enrich_users(target_list, use_single=args.accurate)
+    # Enrich with X API
+    enriched_users = enrich_users_via_api(target_list)
 
     if not enriched_users:
         print("❌ Failed to fetch user details")
