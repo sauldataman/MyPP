@@ -2,12 +2,12 @@
  * Agent API routes
  */
 
-import { Router } from "express";
+import { Router, type Router as RouterType } from "express";
 import { prisma } from "../lib/prisma.js";
 import { queueAgentRun, getQueueStats, getRecentJobs } from "../lib/queue.js";
 import { getRegisteredAgents, getAgent } from "../agents/worker.js";
 
-export const agentsRouter = Router();
+export const agentsRouter: RouterType = Router();
 
 // List all agents
 agentsRouter.get("/", async (req, res) => {

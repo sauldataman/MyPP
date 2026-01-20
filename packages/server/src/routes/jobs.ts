@@ -4,11 +4,11 @@
  * For monitoring and managing async jobs.
  */
 
-import { Router } from "express";
+import { Router, type Router as RouterType } from "express";
 import { getQueueStats, getRecentJobs, agentQueue } from "../lib/queue.js";
 import { scheduler } from "../lib/scheduler.js";
 
-export const jobsRouter = Router();
+export const jobsRouter: RouterType = Router();
 
 // Get queue stats
 jobsRouter.get("/stats", async (req, res) => {
