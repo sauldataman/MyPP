@@ -57,50 +57,91 @@ def get_account_ids(data: list[dict], key: str) -> set[str]:
     return ids
 
 
-def fetch_user_details_batch(user_ids: list[str], batch_size: int = 10) -> list[dict]:
+def fetch_single_user_details(user_id: str) -> dict | None:
     """
-    Fetch user details for a batch of user IDs using Grok.
-
-    Returns list of user details with username, display_name, followers, etc.
+    Fetch details for a single user ID using Grok.
+    More accurate than batch lookup.
     """
-    if not user_ids:
-        return []
+    prompt = f"""Look up this specific Twitter/X user by their numeric user ID.
 
-    prompt = f"""Look up these Twitter/X user IDs and return their current profile information:
+User ID: {user_id}
+Profile URL: https://twitter.com/intent/user?user_id={user_id}
 
-User IDs: {', '.join(user_ids)}
+Visit the profile URL and return the EXACT information you find:
+- user_id: {user_id} (keep this exact ID)
+- username: their current @handle (without @)
+- display_name: their display name shown on profile
+- followers_count: exact number of followers
+- following_count: exact number they follow
+- bio: their bio text (first 100 chars)
+- verified: true if blue checkmark, false otherwise
 
-For each user, provide:
-- user_id: the original ID
-- username: their @handle (without @)
-- display_name: their display name/nickname
-- followers_count: number of followers
-- following_count: number of people they follow
-- bio: their profile bio (truncated to 100 chars if longer)
-- verified: true/false if they have a verified badge
+If the account is suspended, deleted, or not found, return:
+{{"user_id": "{user_id}", "username": "NOT_FOUND", "display_name": "N/A", "followers_count": 0, "following_count": 0, "bio": "", "verified": false}}
 
-Return as a JSON array. If a user is not found or suspended, include them with username "NOT_FOUND".
-
-Example format:
-[
-  {{
-    "user_id": "123",
-    "username": "example",
-    "display_name": "Example User",
-    "followers_count": 1500,
-    "following_count": 200,
-    "bio": "Building cool stuff",
-    "verified": false
-  }}
-]
-
-Only return the JSON array, no other text."""
+Return ONLY a single JSON object, no other text."""
 
     try:
         response = chat_completion(
             messages=[{"role": "user", "content": prompt}],
-            system_prompt="You are a helpful assistant with real-time access to X/Twitter data. Return accurate, current data in the exact JSON format requested.",
-            temperature=0.1,
+            system_prompt="You have real-time access to X/Twitter. Look up the EXACT user ID provided. Do NOT guess or confuse with similar accounts. Return accurate data only.",
+            temperature=0.0,
+            max_tokens=500,
+        )
+
+        # Extract JSON
+        json_match = re.search(r"\{[\s\S]*\}", response)
+        if not json_match:
+            return None
+
+        result = json.loads(json_match.group())
+        # Ensure user_id matches what we asked for
+        result["user_id"] = user_id
+        return result
+    except Exception as e:
+        return None
+
+
+def fetch_user_details_batch(user_ids: list[str], batch_size: int = 5) -> list[dict]:
+    """
+    Fetch user details for a batch of user IDs using Grok.
+    Uses smaller batches with explicit ID mapping for accuracy.
+    """
+    if not user_ids:
+        return []
+
+    # Create explicit URL list for each ID
+    id_url_pairs = [f"- ID {uid}: https://twitter.com/intent/user?user_id={uid}" for uid in user_ids]
+
+    prompt = f"""Look up these specific Twitter/X users by their numeric user IDs.
+Visit each profile URL to get accurate information.
+
+{chr(10).join(id_url_pairs)}
+
+For EACH user ID above, return their profile info.
+IMPORTANT: Match each result to the EXACT user_id provided. Do not confuse users.
+
+Return as a JSON array with one object per user ID:
+[
+  {{
+    "user_id": "the exact ID from above",
+    "username": "their @handle without @",
+    "display_name": "their display name",
+    "followers_count": number,
+    "following_count": number,
+    "bio": "bio text (max 100 chars)",
+    "verified": true/false
+  }}
+]
+
+If an account is not found/suspended, use username "NOT_FOUND".
+Return ONLY the JSON array."""
+
+    try:
+        response = chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt="You have real-time access to X/Twitter. Look up EACH user ID exactly as provided. Do NOT guess or substitute different users. Return accurate data only.",
+            temperature=0.0,
             max_tokens=4000,
         )
 
@@ -110,37 +151,84 @@ Only return the JSON array, no other text."""
             print(f"Warning: Could not parse response for batch")
             return []
 
-        return json.loads(json_match.group())
+        results = json.loads(json_match.group())
+
+        # Verify user_ids match what we requested
+        result_ids = {r.get("user_id") for r in results}
+        for uid in user_ids:
+            if uid not in result_ids:
+                # Add missing user as NOT_FOUND
+                results.append({
+                    "user_id": uid,
+                    "username": "NOT_FOUND",
+                    "display_name": "N/A",
+                    "followers_count": 0,
+                    "following_count": 0,
+                    "bio": "",
+                    "verified": False
+                })
+
+        return results
     except Exception as e:
         print(f"Error fetching batch: {e}")
         return []
 
 
-def enrich_users(user_ids: list[str], delay: float = 1.0) -> list[dict]:
+def enrich_users(user_ids: list[str], delay: float = 1.5, use_single: bool = False) -> list[dict]:
     """
     Enrich a list of user IDs with profile details.
     Processes in batches to avoid rate limits.
+
+    Args:
+        user_ids: List of Twitter user IDs
+        delay: Delay between API calls
+        use_single: If True, look up each user individually (slower but more accurate)
     """
     all_results = []
-    batch_size = 15  # Process 15 users at a time
-    total_batches = (len(user_ids) + batch_size - 1) // batch_size
 
-    print(f"\n📡 Fetching details for {len(user_ids)} users ({total_batches} batches)...")
+    if use_single:
+        # Single user lookup mode - most accurate
+        print(f"\n📡 Fetching details for {len(user_ids)} users (one at a time)...")
+        for i, uid in enumerate(user_ids, 1):
+            print(f"   [{i}/{len(user_ids)}] ID {uid}...", end=" ", flush=True)
+            result = fetch_single_user_details(uid)
+            if result:
+                all_results.append(result)
+                print(f"@{result.get('username', 'ERROR')}")
+            else:
+                all_results.append({
+                    "user_id": uid,
+                    "username": "ERROR",
+                    "display_name": "N/A",
+                    "followers_count": 0,
+                    "following_count": 0,
+                    "bio": "",
+                    "verified": False
+                })
+                print("ERROR")
+            if i < len(user_ids):
+                time.sleep(delay)
+    else:
+        # Batch mode - faster but may have accuracy issues
+        batch_size = 5  # Smaller batches for better accuracy
+        total_batches = (len(user_ids) + batch_size - 1) // batch_size
 
-    for i in range(0, len(user_ids), batch_size):
-        batch = user_ids[i:i + batch_size]
-        batch_num = i // batch_size + 1
+        print(f"\n📡 Fetching details for {len(user_ids)} users ({total_batches} batches of {batch_size})...")
 
-        print(f"   Batch {batch_num}/{total_batches}...", end=" ", flush=True)
+        for i in range(0, len(user_ids), batch_size):
+            batch = user_ids[i:i + batch_size]
+            batch_num = i // batch_size + 1
 
-        results = fetch_user_details_batch(batch)
-        all_results.extend(results)
+            print(f"   Batch {batch_num}/{total_batches}...", end=" ", flush=True)
 
-        print(f"got {len(results)} users")
+            results = fetch_user_details_batch(batch)
+            all_results.extend(results)
 
-        # Rate limit delay between batches
-        if i + batch_size < len(user_ids):
-            time.sleep(delay)
+            print(f"got {len(results)} users")
+
+            # Rate limit delay between batches
+            if i + batch_size < len(user_ids):
+                time.sleep(delay)
 
     return all_results
 
@@ -224,6 +312,7 @@ def main():
     parser.add_argument("--type", choices=["mutual", "following", "followers", "not_following_back"],
                         default="mutual", help="Which list to enrich (default: mutual)")
     parser.add_argument("--limit", type=int, default=0, help="Limit number of users to process (0 = all)")
+    parser.add_argument("--accurate", action="store_true", help="Use single-user lookup mode (slower but more accurate)")
     args = parser.parse_args()
 
     # Initialize
@@ -288,7 +377,7 @@ def main():
         print(f"   (Limited to {args.limit} users)")
 
     # Enrich with Grok
-    enriched_users = enrich_users(target_list)
+    enriched_users = enrich_users(target_list, use_single=args.accurate)
 
     if not enriched_users:
         print("❌ Failed to fetch user details")
